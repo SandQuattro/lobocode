@@ -3,6 +3,7 @@
 ## Unreleased (next image)
 
 - Raise the agent's free-VRAM boot check by 1,536 MiB in `mtp` and `mtp-ngram` modes: 25,487 MiB instead of 23,951 MiB. Image 0.2.5 passed hosts with 23,951–24,900 MiB free, which then failed during model load with a CUDA allocation error. The agent `start` log line now includes the `spec` mode.
+- Settings → Defaults has a `pod image` field (`LOBO_IMAGE`, default `ghcr.io/1905/lobocode:latest-qwen38-q6`) to test other builds. It takes a GHCR tag, resolved to a digest before each start, or a digest. A saved `LOBO_IMAGE_REPO` still works and becomes `LOBO_IMAGE` on the next save.
 - Docs: cold W4 time to first token is 8.95 s → 9.73 s (+8.7%); the earlier 4.76 s → 5.17 s mixed a cold request and a prefix-cache hit. Output under `mtp-ngram` is not reproducible at temperature 0 or with a fixed seed on free prose and Go code; code edits and long-document answers matched.
 
 ## Image 0.2.5 — 2026-10-31

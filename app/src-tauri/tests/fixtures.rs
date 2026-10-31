@@ -14,6 +14,7 @@ fn config() -> (ConfigShow, Readiness) {
         ("LOBO_API_KEY", "sk-9…7e4d"),
         ("LOBO_PROVIDER", "vast"),
         ("LOBO_MODEL", "qwen38-q6"),
+        ("LOBO_IMAGE", "ghcr.io/1905/lobocode:latest-qwen38-q6"),
     ]
     .into_iter()
     .map(|(k, v)| (k.into(), v.into()))

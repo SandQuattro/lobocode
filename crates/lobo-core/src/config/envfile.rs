@@ -38,7 +38,7 @@ pub const LAYOUT: &[LayoutGroup] = &[
         ],
     },
 ];
-pub const HEADER: &str = "# lobo config. Edit by hand or run `lobo config`.\n# Keys here never go into a pod image or a release. Flags on `lobo up` override the defaults.\n# Advanced keys: LOBO_CONNECTION, LOBO_CLOUD_PORT, LOBO_IMAGE_REPO, LOBO_MODEL_BASE_URL.\n";
+pub const HEADER: &str = "# lobo config. Edit by hand or run `lobo config`.\n# Keys here never go into a pod image or a release. Flags on `lobo up` override the defaults.\n# Advanced keys: LOBO_CONNECTION, LOBO_CLOUD_PORT, LOBO_IMAGE, LOBO_MODEL_BASE_URL.\n";
 pub(crate) fn quote(v: &str) -> String {
     if !v.contains([' ', '\t', '#', '"', '\'', '\\', '$', '\n', '\r']) {
         return v.into();
@@ -85,15 +85,24 @@ pub fn save(path: &Path, set: &BTreeMap<String, String>) -> Result<()> {
     };
     let mut set = set.clone();
     // Read migration must not rewrite files. Persist a retired model on normal save.
-    if !set.contains_key("LOBO_MODEL") {
-        let old = dotenv::parse(&original)
-            .map_err(|e| Error::Config(format!("read {}: {e}", path.display())))?;
-        if old
+    let old = dotenv::parse(&original)
+        .map_err(|e| Error::Config(format!("read {}: {e}", path.display())))?;
+    if !set.contains_key("LOBO_MODEL")
+        && old
             .get("LOBO_MODEL")
             .is_some_and(|v| matches!(v.as_str(), "q6" | "q8"))
-        {
-            set.insert("LOBO_MODEL".into(), lobo_proto::DEFAULT_MODEL.into());
+    {
+        set.insert("LOBO_MODEL".into(), lobo_proto::DEFAULT_MODEL.into());
+    }
+    // The same applies to the legacy image repository: it becomes LOBO_IMAGE.
+    if old.contains_key("LOBO_IMAGE_REPO") && !set.contains_key("LOBO_IMAGE_REPO") {
+        if !set.contains_key("LOBO_IMAGE") && !old.contains_key("LOBO_IMAGE") {
+            set.insert(
+                "LOBO_IMAGE".into(),
+                super::Laptop::from_values(&old).image(),
+            );
         }
+        set.insert("LOBO_IMAGE_REPO".into(), String::new());
     }
     let mut lines = Vec::new();
     let mut done = BTreeSet::new();
@@ -187,8 +196,42 @@ mod tests {
         assert_eq!(keys, ["RUNPOD_API_KEY", "LOBO_CTX", "AA", "ZZ"]);
     }
     #[test]
+    fn save_moves_the_legacy_image_repository_to_lobo_image() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("config");
+        let ctx = BTreeMap::from([("LOBO_CTX".into(), "32768".into())]);
+        std::fs::write(&p, "# keep\nLOBO_IMAGE_REPO=sandquattro/lobocode\n").unwrap();
+        save(&p, &ctx).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "# keep\nLOBO_CTX=32768\nLOBO_IMAGE=ghcr.io/sandquattro/lobocode:latest-qwen38-q6\n"
+        );
+        std::fs::write(&p, "LOBO_IMAGE_REPO=sandquattro/lobocode\n").unwrap();
+        save(&p, &BTreeMap::from([("LOBO_IMAGE".into(), String::new())])).unwrap();
+        assert!(values(&p).unwrap().is_empty());
+        std::fs::write(
+            &p,
+            "LOBO_IMAGE=ghcr.io/sandquattro/lobocode:test-q5\nLOBO_IMAGE_REPO=sandquattro/lobocode\n",
+        )
+        .unwrap();
+        save(&p, &ctx).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "LOBO_IMAGE=ghcr.io/sandquattro/lobocode:test-q5\nLOBO_CTX=32768\n"
+        );
+        let explicit = BTreeMap::from([("LOBO_IMAGE_REPO".into(), "other/repo".into())]);
+        std::fs::write(&p, "LOBO_IMAGE_REPO=sandquattro/lobocode\n").unwrap();
+        save(&p, &explicit).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "LOBO_IMAGE_REPO=other/repo\n"
+        );
+    }
+    #[test]
     fn header_describes_cloud_settings() {
         assert!(HEADER.contains("LOBO_CLOUD_PORT"));
+        assert!(HEADER.contains("LOBO_IMAGE,"));
+        assert!(!HEADER.contains("LOBO_IMAGE_REPO"));
         assert!(HEADER.contains("LOBO_MODEL_BASE_URL"));
         assert!(!HEADER.contains("LOBO_MODEL_SOURCE"));
         assert_eq!(HEADER.lines().count(), 3);

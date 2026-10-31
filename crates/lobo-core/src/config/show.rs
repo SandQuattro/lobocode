@@ -14,6 +14,7 @@ pub const PLAIN_KEYS: &[&str] = &[
     "LOBO_CLOUD",
     "LOBO_VAST_MAX_DPH",
     "LOBO_POD_IMAGE",
+    "LOBO_IMAGE",
     "LOBO_IMAGE_REPO",
     "LOBO_MODEL_BASE_URL",
     "LOBO_MODEL_SOURCE",
@@ -91,6 +92,21 @@ mod tests {
     #[test]
     fn plain_keys_show_image_repo() {
         assert_eq!(masked("LOBO_IMAGE_REPO", "1905/lobocode"), "1905/lobocode");
+    }
+    #[test]
+    fn show_reports_lobo_image_only_from_the_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("config");
+        // The Go CLI golden output has no LOBO_IMAGE for a config without it.
+        std::fs::write(&p, "LOBO_CTX=8192\n").unwrap();
+        assert!(!show(&p).unwrap().values.contains_key("LOBO_IMAGE"));
+        std::fs::write(&p, "LOBO_IMAGE=ghcr.io/sandquattro/lobocode:test-q5\n").unwrap();
+        let shown = show(&p).unwrap();
+        assert_eq!(
+            shown.values["LOBO_IMAGE"],
+            "ghcr.io/sandquattro/lobocode:test-q5"
+        );
+        assert!(shown.set["LOBO_IMAGE"]);
     }
     #[test]
     fn plain_keys_show_model_base_url() {

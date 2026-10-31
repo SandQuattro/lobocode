@@ -53,6 +53,9 @@ pub fn validate_set(set: &BTreeMap<String, String>) -> std::result::Result<(), S
             return Err(format!("{key}: whole number ≥ {min}, or empty"));
         }
     }
+    if let Some(v) = set.get("LOBO_IMAGE").filter(|v| !v.trim().is_empty()) {
+        crate::images::ImageRef::parse(v).map_err(|e| format!("LOBO_IMAGE: {e}"))?;
+    }
     if let Some(v) = set.get("LOBO_VAST_MAX_DPH")
         && !v.is_empty()
         && v.parse::<f64>()
@@ -154,6 +157,14 @@ mod tests {
             assert!(check("LOBO_VAST_MAX_DPH", v).is_err());
         }
         check("LOBO_VAST_MAX_DPH", "1.20").unwrap();
+        for v in ["", "ghcr.io/sandquattro/lobocode:test-q5"] {
+            check("LOBO_IMAGE", v).unwrap();
+        }
+        assert!(
+            check("LOBO_IMAGE", "docker.io/sandquattro/lobocode:test")
+                .unwrap_err()
+                .starts_with("LOBO_IMAGE: want ghcr.io/")
+        );
     }
 
     #[test]

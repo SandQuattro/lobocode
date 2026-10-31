@@ -137,9 +137,9 @@ The optional CLI retains its separate export command: `lobo gen-api-key` writes 
 
 The GPU image contains the agent, inference runtime and SSH server. The only build target is `thin`, which is also the default. Model weights download at startup. Retired Q6/Q8 image packaging and shard loaders are removed.
 
-The model list comes from `crates/lobo-proto/catalog.json`. The catalog contains only `qwen38-q6` (huihui-ai Qwen3.8-27B abliterated, Q6_K). The registry is `ghcr.io/1905/lobocode`; the supported model uses `latest-qwen38-q6`. A different registry must carry `latest-qwen38-q6`; otherwise the start fails with `cannot resolve latest <id> GPU image` before any rental.
+The model list comes from `crates/lobo-proto/catalog.json`. The catalog contains only `qwen38-q6` (huihui-ai Qwen3.8-27B abliterated, Q6_K). The default image is `ghcr.io/1905/lobocode:latest-qwen38-q6`. To test another build, set `LOBO_IMAGE` (Settings → Defaults → pod image) to `ghcr.io/<owner>/<name>:<tag>` or `ghcr.io/<owner>/<name>@sha256:<digest>`; an empty value restores the default. A tag that the registry does not resolve fails the start with `cannot resolve GPU image <image>` before any rental. An old `LOBO_IMAGE_REPO=<owner>/<name>` still selects `ghcr.io/<owner>/<name>:latest-qwen38-q6`; the next save from Settings replaces it with `LOBO_IMAGE`.
 
-The app resolves the selected tag again before each new start. The provider receives `ghcr.io/<LOBO_IMAGE_REPO>@sha256:<digest>`, by default `ghcr.io/1905/lobocode@sha256:<digest>`. It may reuse identical layers, but cannot substitute an older image digest.
+The app resolves the tag again before each new start. The provider receives `ghcr.io/<owner>/<name>@sha256:<digest>`, by default `ghcr.io/1905/lobocode@sha256:<digest>`. It may reuse identical layers, but cannot substitute an older image digest. A digest reference is passed through without a registry request.
 
 `qwen38-q6` runs from a thin image (Dockerfile target `thin`) without weights and downloads its 22,430,999,840-byte GGUF as 84 content-addressed 256 MiB chunks from `{LOBO_MODEL_BASE_URL}/models/{sha256}/{nnn}`, by default `https://models.stealthcopilot.io`. A project contributor operates that CDN. If the CDN fails or is too slow, the agent downloads the same byte ranges from the original file on Hugging Face (`https://huggingface.co/<repo>/resolve/main/<file>`). The agent verifies the SHA-256 of every chunk from either source against the table pinned in the catalog. That table was checked against the complete Hugging Face file on October 26, 2026. It starts 4 parallel streams, adds 4 per 5 s window while aggregate throughput rises by at least 10 %, and stops at the cap from the control plane (default 32). A stream that is far slower than the rest restarts once per chunk. The hidden `--conns` option overrides the cap; values below 2 are rejected. The slow-host check (`LOBO_MIN_MBPS`) uses the rate over the last 5 s before the 20 s check. No user needs a token to download.
 
@@ -172,7 +172,7 @@ The table describes the Rust app and CLI configuration. Starts use only RunPod o
 | `LOBO_CLOUD_PORT` (control API on port + 1) | | 8933 |
 | `LOBO_MODEL` (qwen38-q6 only; saved q6/q8 values migrate on load and save) | | qwen38-q6 |
 | `LOBO_MODEL_BASE_URL` (base URL of the model chunks; https only, trailing slash ignored; shown unmasked by `lobo config show`) | | `https://models.stealthcopilot.io` |
-| `LOBO_IMAGE_REPO` (GHCR repository with the `latest-qwen38-q6` image) | | 1905/lobocode |
+| `LOBO_IMAGE` (GHCR image, `ghcr.io/<owner>/<name>:<tag>` or `@sha256:<digest>`; replaces `LOBO_IMAGE_REPO`) | `--image` (CLI, passed as is) | `ghcr.io/1905/lobocode:latest-qwen38-q6` |
 | `LOBO_CTX` | `--ctx` | 65536 |
 | `LOBO_IDLE_MIN` | `--idle-min` | 30 |
 | `LOBO_MAX_HOURS` | `--max-life` | 12 |
