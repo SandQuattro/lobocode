@@ -400,6 +400,15 @@
             )}
           />
         </div>
+        <label class="field"
+          ><span>pod image</span><input
+            aria-label="pod image"
+            placeholder="ghcr.io/1905/lobocode:latest-qwen38-q6"
+            bind:value={fields.plain.LOBO_IMAGE}
+            disabled={saving}
+            spellcheck="false"
+          /></label
+        >
         {#each numeric.slice(0, 3) as [key, label, placeholder]}<label
             class="field"
             ><span>{label}</span><input

@@ -9,6 +9,7 @@ export const PLAIN_KEYS = [
   'LOBO_VAST_MAX_DPH',
   'LOBO_PROVIDER',
   'LOBO_MODEL',
+  'LOBO_IMAGE',
   'LOBO_CLOUD',
 ];
 export const SECRET_KEYS = ['RUNPOD_API_KEY', 'VASTAI_API_KEY'];

@@ -160,15 +160,62 @@ fn defaults_accept_every_catalog_id() {
     );
 }
 #[test]
-fn image_repo_defaults_to_upstream_and_normalizes_input() {
-    assert_eq!(Laptop::default().image_repo(), "1905/lobocode");
+fn image_defaults_to_upstream_and_derives_legacy_repository() {
+    assert_eq!(
+        Laptop::default().image(),
+        "ghcr.io/1905/lobocode:latest-qwen38-q6"
+    );
     for v in [
         "SandQuattro/lobocode",
         "ghcr.io/SandQuattro/lobocode/",
         " sandquattro/lobocode ",
     ] {
         let l = Laptop::from_values(&[("LOBO_IMAGE_REPO".into(), v.into())].into());
-        assert_eq!(l.image_repo(), "sandquattro/lobocode", "{v:?}");
+        assert_eq!(
+            l.image(),
+            "ghcr.io/sandquattro/lobocode:latest-qwen38-q6",
+            "{v:?}"
+        );
+    }
+    let l = Laptop::from_values(
+        &[
+            ("LOBO_IMAGE_REPO".into(), "sandquattro/lobocode".into()),
+            (
+                "LOBO_IMAGE".into(),
+                " ghcr.io/sandquattro/lobocode:test-q5 ".into(),
+            ),
+        ]
+        .into(),
+    );
+    assert_eq!(l.image(), "ghcr.io/sandquattro/lobocode:test-q5");
+}
+#[test]
+fn image_rejects_malformed_values() {
+    for v in [
+        "docker.io/sandquattro/lobocode:test",
+        "sandquattro/lobocode:test",
+        "ghcr.io/sandquattro/lobocode",
+    ] {
+        let l = Laptop {
+            image: v.into(),
+            ..Default::default()
+        };
+        let (_, bad) = defaults_partial(&l);
+        let msg = bad
+            .get("LOBO_IMAGE")
+            .unwrap_or_else(|| panic!("{v}: accepted"));
+        assert!(msg.starts_with("want ghcr.io/"), "{v}: {msg}");
+    }
+    for v in [
+        "ghcr.io/sandquattro/lobocode:test-q5",
+        &format!("ghcr.io/sandquattro/lobocode@sha256:{}", "c".repeat(64)),
+        "",
+    ] {
+        let l = Laptop {
+            image: v.into(),
+            ..Default::default()
+        };
+        assert!(!defaults_partial(&l).1.contains_key("LOBO_IMAGE"), "{v}");
     }
 }
 #[test]

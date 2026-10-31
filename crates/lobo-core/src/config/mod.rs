@@ -34,6 +34,7 @@ pub struct Laptop {
     pub vast_api_key: String,
     pub vast_max_dph: String,
     pub pod_image: String,
+    pub image: String,
     pub image_repo: String,
     pub model_base_url: String,
     pub provider: String,
@@ -63,6 +64,7 @@ impl Laptop {
             vast_api_key: get("VASTAI_API_KEY"),
             vast_max_dph: get("LOBO_VAST_MAX_DPH"),
             pod_image: get("LOBO_POD_IMAGE"),
+            image: get("LOBO_IMAGE"),
             image_repo: get("LOBO_IMAGE_REPO"),
             model_base_url: get("LOBO_MODEL_BASE_URL"),
             provider: get("LOBO_PROVIDER"),
@@ -130,14 +132,22 @@ impl Laptop {
     pub fn uses_ssh(&self) -> bool {
         matches!(self.connection_mode(), Ok("ssh"))
     }
-    pub fn image_repo(&self) -> String {
-        let v = self.image_repo.trim();
-        if v.is_empty() {
-            return crate::images::REPOSITORY.to_owned();
+    /// `LOBO_IMAGE`, else the legacy `LOBO_IMAGE_REPO` with the default model tag.
+    pub fn image(&self) -> String {
+        let image = self.image.trim();
+        if !image.is_empty() {
+            return image.to_owned();
         }
-        let v = v.to_lowercase();
-        let v = v.strip_prefix("ghcr.io/").unwrap_or(&v);
-        v.trim_end_matches('/').to_owned()
+        let repo = self.image_repo.trim().to_lowercase();
+        if repo.is_empty() {
+            return crate::images::default_image();
+        }
+        let repo = repo.strip_prefix("ghcr.io/").unwrap_or(&repo);
+        format!(
+            "ghcr.io/{}:latest-{}",
+            repo.trim_end_matches('/'),
+            lobo_proto::DEFAULT_MODEL
+        )
     }
     pub fn model_base_url(&self) -> String {
         let v = self.model_base_url.trim().trim_end_matches('/');
@@ -334,18 +344,15 @@ pub fn defaults_partial(l: &Laptop) -> (Defaults, BTreeMap<String, String>) {
         cloud: one_of("LOBO_CLOUD", &l.cloud, &["secure", "community"]),
         ..Default::default()
     };
-    let repo = l.image_repo();
-    let parts: Vec<&str> = repo.split('/').collect();
-    let name_ok = |p: &&str| {
-        !p.is_empty()
-            && p.bytes()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c))
-    };
-    if parts.len() < 2 || !parts.iter().all(name_ok) {
-        bad.insert(
-            "LOBO_IMAGE_REPO".into(),
-            format!("want <owner>/<name>, got {:?}", l.image_repo.trim()),
-        );
+    if let Err(e) = crate::images::ImageRef::parse(&l.image()) {
+        if l.image.trim().is_empty() {
+            bad.insert(
+                "LOBO_IMAGE_REPO".into(),
+                format!("want <owner>/<name>, got {:?}", l.image_repo.trim()),
+            );
+        } else {
+            bad.insert("LOBO_IMAGE".into(), e);
+        }
     }
     let base = l.model_base_url();
     if !(base.starts_with("https://") && valid_url(&base)) {

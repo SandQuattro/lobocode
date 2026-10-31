@@ -252,6 +252,7 @@ impl Backend for CoreBackend {
             .values
             .insert("LOBO_PROVIDER".into(), cfg.provider.clone());
         shown.values.insert("LOBO_MODEL".into(), cfg.model.clone());
+        shown.values.insert("LOBO_IMAGE".into(), cfg.image());
         let loaded = config::load_laptop(&self.path).map(cloud_config);
         let error = loaded
             .as_ref()
@@ -516,6 +517,10 @@ mod tests {
         assert!(!readiness.local_supported);
         assert!(!shown.values.contains_key("LOBO_WEIGHTS_DIR"));
         assert_eq!(shown.values["LOBO_PROVIDER"], "runpod");
+        assert_eq!(
+            shown.values["LOBO_IMAGE"],
+            "ghcr.io/1905/lobocode:latest-qwen38-q6"
+        );
         assert_eq!(std::fs::read(&backend.path).unwrap(), original);
         let cfg = cloud_config(config::load_laptop(&backend.path).unwrap());
         assert!(!control::providers_from_config(&cfg, &backend.wiring).contains_key("local"));

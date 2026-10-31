@@ -62,6 +62,22 @@ test('cloud saves preserve local CLI config and unchanged effective defaults', (
   fields.secrets.RUNPOD_API_KEY = ' new-key ';
   expect(changes(fields, config.values)).toEqual({ RUNPOD_API_KEY: 'new-key' });
 });
+test('pod image starts from the effective image and clears to the default', () => {
+  const image = 'ghcr.io/1905/lobocode:latest-qwen38-q6';
+  const config = {
+    values: { LOBO_CONNECTION: 'ssh', LOBO_IMAGE: image },
+    set: { LOBO_IMAGE: false },
+  } as unknown as ConfigShow;
+  const fields = loadFields(config);
+  expect(fields.plain.LOBO_IMAGE).toBe(image);
+  expect(changes(fields, config.values)).toEqual({});
+  fields.plain.LOBO_IMAGE = ' ghcr.io/sandquattro/lobocode:test-q5 ';
+  expect(changes(fields, config.values)).toEqual({
+    LOBO_IMAGE: 'ghcr.io/sandquattro/lobocode:test-q5',
+  });
+  fields.plain.LOBO_IMAGE = '';
+  expect(changes(fields, config.values)).toEqual({ LOBO_IMAGE: '' });
+});
 test('provider targets and saved text', () => {
   const r = {
     local_supported: true,
