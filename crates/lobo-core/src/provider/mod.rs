@@ -52,6 +52,8 @@ pub trait Provider: Send + Sync {
     async fn list(&self) -> Result<Vec<Instance>>;
     async fn get(&self, id: &str) -> Result<Instance>;
     async fn delete(&self, id: &str) -> Result<()>;
+    /// The rented instance reached Ready.
+    fn mark_ready(&self, _id: &str) {}
     /// Delete only the provider instance selected by an owned operation.
     async fn delete_owned(&self, id: &str, boot_id: &str) -> Result<()> {
         if boot_id.is_empty() || !matches!(self.name(), "runpod" | "vast") {

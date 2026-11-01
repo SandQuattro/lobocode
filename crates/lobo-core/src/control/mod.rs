@@ -56,6 +56,10 @@ pub const NO_CAPACITY_WAIT: Duration = Duration::from_secs(30);
 pub const CONTAINER_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 pub const STALE_SLACK: Duration = Duration::from_secs(15);
 pub const POD_CHECK_EVERY: Duration = Duration::from_secs(30);
+/// GPU use above this while the model is not loaded is someone else's work.
+pub const GPU_BUSY_PCT: i64 = 50;
+/// Longer than the agent's 30 s GPU sample interval, so two samples agree.
+pub const GPU_BUSY_FOR: Duration = Duration::from_secs(35);
 pub(crate) async fn list_all(d: &Deps) -> (Vec<Instance>, Option<Error>) {
     let mut instances = vec![];
     let mut errors = vec![];

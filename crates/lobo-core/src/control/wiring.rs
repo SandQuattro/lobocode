@@ -4,13 +4,19 @@ use std::path::PathBuf;
 pub struct Wiring {
     pub config_path: PathBuf,
     pub exe: PathBuf,
+    /// Lives as long as the process, so every start in an app session shares it.
+    pub vast_unready: vast::UnreadyMachines,
 }
 impl Wiring {
     pub fn new(config_path: PathBuf, exe: PathBuf) -> Self {
-        Self { config_path, exe }
+        Self {
+            config_path,
+            exe,
+            vast_unready: Default::default(),
+        }
     }
 }
-pub fn providers_from_config(cfg: &Laptop, _w: &Wiring) -> BTreeMap<String, Arc<dyn Provider>> {
+pub fn providers_from_config(cfg: &Laptop, w: &Wiring) -> BTreeMap<String, Arc<dyn Provider>> {
     let mut out: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
     if !cfg.runpod_api_key.is_empty() {
         out.insert(
@@ -22,14 +28,13 @@ pub fn providers_from_config(cfg: &Laptop, _w: &Wiring) -> BTreeMap<String, Arc<
         );
     }
     if !cfg.vast_api_key.is_empty() {
-        out.insert(
-            "vast".into(),
-            Arc::new(vast::VastProvider::new(
-                vast::Client::new(&cfg.vast_api_key),
-                cfg.vast_max_dph.parse().unwrap_or(0.0),
-                "",
-            )),
+        let mut vast = vast::VastProvider::new(
+            vast::Client::new(&cfg.vast_api_key),
+            cfg.vast_max_dph.parse().unwrap_or(0.0),
+            "",
         );
+        vast.unready = w.vast_unready.clone();
+        out.insert("vast".into(), Arc::new(vast));
     }
     out
 }

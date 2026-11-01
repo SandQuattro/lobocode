@@ -2,6 +2,8 @@
 
 ## Unreleased (fork)
 
+- A start rents another GPU when the pod's GPU stays above 50 % utilization for 35 s (two agent samples) while the weights download or verify. The model is not loaded then, so the load is someone else's. A Vast RTX 5090 (machine 145858) showed 100 % in every sample while our idle model ran at 17.7 tok/s on prose instead of 102.2. The check runs in the app and needs no new image; load that starts after the download is not detected.
+- Vast: a start no longer rents a machine that did not reach Ready earlier in the same app session (a failed or cancelled start). Earlier, only a replacement within one start skipped the tried offer, so the same machine came back through another offer or on the next start: one host with a stalled image pull was rented on three starts in a row. A machine that reached Ready stays available; an app restart clears the list. The start log names each skipped offer and its machine; when every offer is skipped, the no-capacity error says how many.
 - Settings → Defaults has a `pod image` field (`LOBO_IMAGE`, default `ghcr.io/1905/lobocode:latest-qwen38-q6`) to test other builds. It takes a GHCR tag, resolved to a digest before each start, or a digest. A saved `LOBO_IMAGE_REPO` still works and becomes `LOBO_IMAGE` on the next save.
 
 ## App 0.2.5, image 0.2.6, CLI 0.2.0 — 2026-10-31

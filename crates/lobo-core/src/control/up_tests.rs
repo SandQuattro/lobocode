@@ -358,6 +358,129 @@ async fn up_replaces_bad_gpu_and_ignores_stale_status() {
     assert_eq!(s.deleted.len(), 1);
     assert_ne!(s.created[0].opts.boot_id, s.created[1].opts.boot_id);
 }
+struct ReadyProbe {
+    inner: crate::provider::runpod::RunPodProvider,
+    ready: Mutex<Vec<String>>,
+}
+#[async_trait]
+impl Provider for ReadyProbe {
+    fn name(&self) -> &'static str {
+        "runpod"
+    }
+    fn replaceable(&self) -> bool {
+        true
+    }
+    async fn rent(
+        &self,
+        o: &CreateOpts,
+        c: CancellationToken,
+        note: &(dyn Fn(String) + Sync),
+    ) -> Result<Instance> {
+        self.inner.rent(o, c, note).await
+    }
+    async fn list(&self) -> Result<Vec<Instance>> {
+        self.inner.list().await
+    }
+    async fn get(&self, id: &str) -> Result<Instance> {
+        self.inner.get(id).await
+    }
+    async fn delete(&self, id: &str) -> Result<()> {
+        self.inner.delete(id).await
+    }
+    fn mark_ready(&self, id: &str) {
+        self.ready.lock().unwrap().push(id.into());
+    }
+}
+#[tokio::test]
+async fn up_marks_only_the_pod_that_reached_ready() {
+    let (mut d, rp) = test_deps(vec![
+        Some(Status {
+            stage: Stage::Failed,
+            stage_detail: "gpu: no CUDA".into(),
+            ..Default::default()
+        }),
+        Some(Status {
+            stage: Stage::Ready,
+            ..Default::default()
+        }),
+    ]);
+    let probe = Arc::new(ReadyProbe {
+        inner: crate::provider::runpod::RunPodProvider {
+            api: rp.clone(),
+            domain: "lobo.example.com".into(),
+        },
+        ready: Mutex::default(),
+    });
+    d.providers.insert("runpod".into(), probe.clone());
+    let (_, result) = collect(d, UpOpts::default()).await;
+    result.unwrap();
+    assert_eq!(rp.state.lock().unwrap().created.len(), 2);
+    assert_eq!(*probe.ready.lock().unwrap(), ["pod1"]);
+}
+fn gpu_at(stage: Stage, util_pct: i64) -> Option<Status> {
+    Some(Status {
+        stage,
+        gpu: Some(lobo_proto::Gpu {
+            util_pct,
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+#[tokio::test]
+async fn up_replaces_a_host_whose_gpu_is_busy_before_the_model_loads() {
+    for (script, attempts) in [
+        // Two agent samples over 35 s: someone else's work, rent another pod.
+        (
+            vec![
+                gpu_at(Stage::Download, 100),
+                gpu_at(Stage::Verify, 100),
+                gpu_at(Stage::Ready, 0),
+            ],
+            2,
+        ),
+        // A brief spike and our own model load are not a busy host.
+        (
+            vec![
+                gpu_at(Stage::Download, 100),
+                gpu_at(Stage::Download, 0),
+                gpu_at(Stage::Load, 100),
+                gpu_at(Stage::Load, 100),
+                gpu_at(Stage::Ready, 0),
+            ],
+            1,
+        ),
+    ] {
+        let (mut d, rp) = test_deps(script);
+        d.clock = Arc::new(StepClock::new(
+            "2026-09-23T10:00:00Z".parse().unwrap(),
+            GPU_BUSY_FOR,
+        ));
+        let (events, result) = collect(
+            d,
+            UpOpts {
+                timeout: Duration::from_secs(20000),
+                ..Default::default()
+            },
+        )
+        .await;
+        result.unwrap();
+        assert_eq!(
+            events.last().unwrap().ready.as_ref().unwrap().attempts,
+            attempts
+        );
+        let busy = events.iter().any(|e| {
+            e.detail.contains(
+                "host: GPU busy with another workload: 100% while the model is not loaded",
+            )
+        });
+        assert_eq!(busy, attempts == 2);
+        assert_eq!(
+            rp.state.lock().unwrap().deleted.len(),
+            attempts as usize - 1
+        );
+    }
+}
 #[tokio::test]
 async fn up_gives_up_after_ten_bad_hosts() {
     let (d, rp) = test_deps(vec![Some(Status {
