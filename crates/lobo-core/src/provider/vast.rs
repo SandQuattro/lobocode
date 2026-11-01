@@ -360,6 +360,10 @@ impl Provider for VastProvider {
             }
             if self.unready.lock().unwrap().contains(&offer.machine_id) {
                 skipped += 1;
+                note(format!(
+                    "offer {} skipped: machine {} did not reach Ready earlier in this session",
+                    offer.id, offer.machine_id
+                ));
                 continue;
             }
             if !self.tried.lock().unwrap().insert(offer.id) {

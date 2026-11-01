@@ -408,10 +408,24 @@ async fn rent_skips_machines_that_did_not_reach_ready_until_restart() {
     // A replacement skips the other offer on the same machine.
     let replacement = rent_once(&p).await.unwrap();
     assert!(replacement.detail.contains("offer 3"));
-    // A new start in the same session skips both machines.
-    let err = rent_once(&start(&p.unready)).await.unwrap_err();
+    // A new start in the same session skips both machines and reports each skip.
+    let notes = Mutex::new(Vec::new());
+    let err = start(&p.unready)
+        .rent(&opts(), CancellationToken::new(), &|s| {
+            notes.lock().unwrap().push(s)
+        })
+        .await
+        .unwrap_err();
     assert!(err.is_no_capacity());
     assert!(err.to_string().contains("3 offers skipped"), "{err}");
+    assert_eq!(
+        *notes.lock().unwrap(),
+        [
+            "offer 1 skipped: machine 10 did not reach Ready earlier in this session",
+            "offer 2 skipped: machine 10 did not reach Ready earlier in this session",
+            "offer 3 skipped: machine 20 did not reach Ready earlier in this session",
+        ]
+    );
     // A machine that reached Ready can be rented again.
     p.mark_ready(&replacement.id);
     assert!(
