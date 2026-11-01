@@ -358,6 +358,65 @@ async fn up_replaces_bad_gpu_and_ignores_stale_status() {
     assert_eq!(s.deleted.len(), 1);
     assert_ne!(s.created[0].opts.boot_id, s.created[1].opts.boot_id);
 }
+struct ReadyProbe {
+    inner: crate::provider::runpod::RunPodProvider,
+    ready: Mutex<Vec<String>>,
+}
+#[async_trait]
+impl Provider for ReadyProbe {
+    fn name(&self) -> &'static str {
+        "runpod"
+    }
+    fn replaceable(&self) -> bool {
+        true
+    }
+    async fn rent(
+        &self,
+        o: &CreateOpts,
+        c: CancellationToken,
+        note: &(dyn Fn(String) + Sync),
+    ) -> Result<Instance> {
+        self.inner.rent(o, c, note).await
+    }
+    async fn list(&self) -> Result<Vec<Instance>> {
+        self.inner.list().await
+    }
+    async fn get(&self, id: &str) -> Result<Instance> {
+        self.inner.get(id).await
+    }
+    async fn delete(&self, id: &str) -> Result<()> {
+        self.inner.delete(id).await
+    }
+    fn mark_ready(&self, id: &str) {
+        self.ready.lock().unwrap().push(id.into());
+    }
+}
+#[tokio::test]
+async fn up_marks_only_the_pod_that_reached_ready() {
+    let (mut d, rp) = test_deps(vec![
+        Some(Status {
+            stage: Stage::Failed,
+            stage_detail: "gpu: no CUDA".into(),
+            ..Default::default()
+        }),
+        Some(Status {
+            stage: Stage::Ready,
+            ..Default::default()
+        }),
+    ]);
+    let probe = Arc::new(ReadyProbe {
+        inner: crate::provider::runpod::RunPodProvider {
+            api: rp.clone(),
+            domain: "lobo.example.com".into(),
+        },
+        ready: Mutex::default(),
+    });
+    d.providers.insert("runpod".into(), probe.clone());
+    let (_, result) = collect(d, UpOpts::default()).await;
+    result.unwrap();
+    assert_eq!(rp.state.lock().unwrap().created.len(), 2);
+    assert_eq!(*probe.ready.lock().unwrap(), ["pod1"]);
+}
 #[tokio::test]
 async fn up_gives_up_after_ten_bad_hosts() {
     let (d, rp) = test_deps(vec![Some(Status {

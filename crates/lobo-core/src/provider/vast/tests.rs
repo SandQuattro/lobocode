@@ -382,6 +382,56 @@ async fn rent_skips_taken_and_tried() {
     assert_eq!(f.lock().unwrap().puts, [1, 2, 3]);
 }
 
+async fn rent_once(p: &VastProvider) -> Result<Instance> {
+    p.rent(&opts(), CancellationToken::new(), &|_| {}).await
+}
+
+#[tokio::test]
+async fn rent_skips_machines_that_did_not_reach_ready_until_restart() {
+    let offer = |id, machine_id| Offer {
+        id,
+        machine_id,
+        dph: 0.5,
+        ..Default::default()
+    };
+    let (s, f, p) = setup(FakeVast {
+        offers: vec![offer(1, 10), offer(2, 10), offer(3, 20)],
+        ..Default::default()
+    })
+    .await;
+    let start = |unready: &UnreadyMachines| {
+        let mut p = VastProvider::new(Client::with_base("key", &s.uri()), 1.2, "lobo.test");
+        p.unready = unready.clone();
+        p
+    };
+    rent_once(&p).await.unwrap();
+    // A replacement skips the other offer on the same machine.
+    let replacement = rent_once(&p).await.unwrap();
+    assert!(replacement.detail.contains("offer 3"));
+    // A new start in the same session skips both machines.
+    let err = rent_once(&start(&p.unready)).await.unwrap_err();
+    assert!(err.is_no_capacity());
+    assert!(err.to_string().contains("3 offers skipped"), "{err}");
+    // A machine that reached Ready can be rented again.
+    p.mark_ready(&replacement.id);
+    assert!(
+        rent_once(&start(&p.unready))
+            .await
+            .unwrap()
+            .detail
+            .contains("offer 3")
+    );
+    // An app restart starts with an empty session.
+    assert!(
+        rent_once(&start(&UnreadyMachines::default()))
+            .await
+            .unwrap()
+            .detail
+            .contains("offer 1")
+    );
+    assert_eq!(f.lock().unwrap().puts, [1, 3, 3, 1]);
+}
+
 #[tokio::test]
 async fn create_body_via_rent() {
     let (_s, f, p) = setup(FakeVast {

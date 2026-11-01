@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Mutex, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -19,6 +23,7 @@ pub const DISK_GB: i64 = 80;
 #[serde(default)]
 pub struct Offer {
     pub id: i64,
+    pub machine_id: i64,
     pub gpu_name: String,
     #[serde(rename = "dph_total")]
     pub dph: f64,
@@ -270,12 +275,18 @@ pub fn create_body(o: &CreateOpts) -> Value {
         "onstart":format!("#!/bin/bash\n{}",bootstrap::start_script("vast", o)), "env":env})
 }
 
+/// Vast machines rented by this process that have not reached Ready. Every
+/// start skips them; a new process (an app restart) forgets them.
+pub type UnreadyMachines = Arc<Mutex<HashSet<i64>>>;
+
 pub struct VastProvider {
     pub client: Client,
     pub max_dph: f64,
     pub domain: String,
     pub adopt_wait: Duration,
+    pub unready: UnreadyMachines,
     tried: Mutex<HashSet<i64>>,
+    machines: Mutex<HashMap<String, i64>>,
 }
 impl VastProvider {
     pub fn new(client: Client, max_dph: f64, domain: &str) -> Self {
@@ -284,7 +295,16 @@ impl VastProvider {
             max_dph,
             domain: domain.into(),
             adopt_wait: Duration::from_secs(3),
+            unready: UnreadyMachines::default(),
             tried: Mutex::new(HashSet::new()),
+            machines: Mutex::new(HashMap::new()),
+        }
+    }
+    fn rented(&self, id: &str, machine: i64) {
+        // Offers without a machine ID cannot be grouped by machine.
+        if machine != 0 {
+            self.unready.lock().unwrap().insert(machine);
+            self.machines.lock().unwrap().insert(id.into(), machine);
         }
     }
     async fn adopt(&self, before: &HashSet<String>) -> Option<Instance> {
@@ -333,9 +353,14 @@ impl Provider for VastProvider {
         .map(|i| i.id)
         .collect();
         let body = create_body(o);
+        let mut skipped = 0;
         for offer in offers {
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
+            }
+            if self.unready.lock().unwrap().contains(&offer.machine_id) {
+                skipped += 1;
+                continue;
             }
             if !self.tried.lock().unwrap().insert(offer.id) {
                 continue;
@@ -347,6 +372,7 @@ impl Provider for VastProvider {
             // Await submitted creates; the owner will clean up a late success.
             match self.client.create(offer.id, &body).await {
                 Ok(id) => {
+                    self.rented(&id.to_string(), offer.machine_id);
                     return Ok(on_domain(
                         Instance {
                             provider: "vast".into(),
@@ -366,6 +392,7 @@ impl Provider for VastProvider {
                 Err(e) => {
                     if let Some(mut i) = self.adopt(&before).await {
                         i.detail = detail;
+                        self.rented(&i.id, offer.machine_id);
                         return Ok(i);
                     }
                     return Err(Error::UnresolvedCreate {
@@ -379,8 +406,15 @@ impl Provider for VastProvider {
                 }
             }
         }
+        let skipped = if skipped > 0 {
+            format!(
+                "; {skipped} offers skipped: their machines did not reach Ready earlier in this session"
+            )
+        } else {
+            String::new()
+        };
         Err(Error::NoCapacity(format!(
-            "no untried 1× RTX 5090 offer (verified, reliability ≥0.98, ≤${max_dph:.2}/h)"
+            "no untried 1× RTX 5090 offer (verified, reliability ≥0.98, ≤${max_dph:.2}/h){skipped}"
         )))
     }
     async fn list(&self) -> Result<Vec<Instance>> {
@@ -403,6 +437,11 @@ impl Provider for VastProvider {
     async fn delete(&self, id: &str) -> Result<()> {
         let id = id.parse::<i64>().map_err(|e| Error::Other(e.to_string()))?;
         self.client.destroy(id).await
+    }
+    fn mark_ready(&self, id: &str) {
+        if let Some(machine) = self.machines.lock().unwrap().get(id) {
+            self.unready.lock().unwrap().remove(machine);
+        }
     }
 }
 fn to_instance(i: Inst) -> Instance {

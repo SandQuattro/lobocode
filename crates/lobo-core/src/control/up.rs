@@ -859,6 +859,7 @@ async fn boot(
                             .unwrap_or(i64::MAX),
                     };
                     ownership.clear()?;
+                    p.mark_ready(&pod.id);
                     events.emit(UpEvent {
                         phase,
                         detail,

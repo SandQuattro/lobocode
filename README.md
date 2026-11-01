@@ -189,6 +189,7 @@ The app and CLI connect only through private SSH. They select RunPod hosts with 
 - **Idle kill:** 30 min without requests. **Hard expiry:** fixed at create time, 12 h by default.
 - The pod deletes itself with a pod-scoped key that the provider injects. Your account keys stay on the laptop.
 - Failed starts are replaced automatically: container never started, broken CUDA, unavailable VRAM, slow download, an agent error or a pod that disappeared. At most 10 attempts, within the startup limit.
+- On Vast, a machine that did not reach Ready (a failed or cancelled start) is not rented again until the app restarts, even through another offer on the same machine. A machine that reached Ready stays available. The CLI keeps this list for one `lobo up`.
 
 ## Development
 
