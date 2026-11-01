@@ -705,6 +705,7 @@ async fn boot(
     let mut seen = false;
     let created = d.clock.now();
     let mut last_check = created;
+    let mut gpu_busy_since = None;
     loop {
         check_cancel(cancel)?;
         if d.clock.now() >= co.expires_at {
@@ -802,6 +803,26 @@ async fn boot(
                 phase,
                 format!("startup check: {provider_check}; agent {agent_check}; ready unconfirmed"),
             );
+        }
+        // Before the model loads, the pod itself leaves the GPU idle.
+        if let Some(s) = &status
+            && matches!(s.stage, Stage::Download | Stage::Verify)
+        {
+            let util = s.gpu.as_ref().map_or(0, |g| g.util_pct);
+            if util <= GPU_BUSY_PCT {
+                gpu_busy_since = None;
+            } else {
+                let now = d.clock.now();
+                let since = *gpu_busy_since.get_or_insert(now);
+                if (now - since).to_std().unwrap_or_default() >= GPU_BUSY_FOR && p.replaceable() {
+                    let reason = format!(
+                        "host: GPU busy with another workload: {util}% while the model is not loaded"
+                    );
+                    events.phase(s.stage.as_str(), reason.clone());
+                    scope.cleanup(d, ownership).await?;
+                    return Ok(Boot::retry(reason));
+                }
+            }
         }
         let phase = if let Some(s) = &status {
             seen = true;
